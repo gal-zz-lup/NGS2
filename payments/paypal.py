@@ -5,28 +5,44 @@ import paypalrestsdk as pp
 import re
 
 
-def data_checks(d):
-    EMAIL_CHECK = '^\w*@\w*.(com|org|edu)$'
-
+def batch_size_test(d):
     # ensure no batch has more than 250 entries
     assert d.groupby('batch_id').apply(lambda x: len(x) <= 250).all(), \
     'STOP! Some batches are too large.'
+
+
+def currency_type_test(d):
+    # check currencies are valid
+    assert d.currency.all() in ['USD', 'PHP'], \
+    'STOP! Not all currency choices are valid.'
+
+
+def email_formation_test(d):
+    EMAIL_CHECK = '^\w*@\w*.(com|org|edu)$'
 
     # check if email is well-formed
     assert d.receiver_email.apply(lambda x: re.match(EMAIL_CHECK, x)).all(), \
     'STOP! Not all email addresses are well-formed.'
 
+
+def unique_transaction_ids_test(d):
+    # check all item id's are unique
+    assert d.groupby('batch_id').item_id.apply(lambda x: len(x) == len(set(x))).all(), \
+    'STOP! Not all transactions IDs are unique within batches.'
+
+
+def values_numeric_test(d):
     # check currency values are valid
     assert d.value.apply(lambda x: isinstance(x, float)).all(), \
     'STOP! Currencies not numeric'
 
-    # check currencies are valid
-    assert d.currency.all() in ['USD', 'PHP'], \
-    'STOP! Not all currency choices are valid.'
 
-    # check all item id's are unique
-    assert len(d.item_id) == len(set(d.item_id)), \
-    'STOP! Not all transactions IDs are unique.'
+def data_checks(d):
+    batch_size_test(d)
+    email_formation_test(d)
+    values_numeric_test(d)
+    currency_type_test(d)
+    unique_transaction_ids_test(d)
 
 
 def build_payout(df):
@@ -74,7 +90,7 @@ def run(args_dict):
                 'sender_batch_header': {
                     'sender_batch_id': batch,
                     'email_subject': 'Thank you for participating in PROGRAM NAME; '
-                                     'here is your incentive payment.'
+                                     'here is your incentive payment'
                 },
                 'items': build_payout(details)
             },

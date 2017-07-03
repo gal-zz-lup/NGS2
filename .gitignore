@@ -9,3 +9,4 @@ NGS2-Cycle1-Experiment2/documentation/
 
 # python bytecode files
 *.pyc
+.cache
