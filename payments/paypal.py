@@ -1,71 +1,103 @@
 #!/usr/bin/python
 import argparse
-import os
-import requests
-
-from oauthlib.oauth2 import BackendApplicationClient
-from requests_oauthlib import OAuth2Session
+import pandas as pd
+import paypalrestsdk as pp
+import re
 
 
-class PayPal(object):
-    AUTH_EP = 'v1/oauth2/token'
-    PAYMENTS_EP = 'v1/payments'
+def data_checks(d):
+    EMAIL_CHECK = '^\w*@\w*.(com|org|edu)$'
 
-    def __init__(self, args_dict):
-        self.HOST = self.resolve_host(args_dict['environment'])
-        self.key = args_dict['key']
-        self.secret = args_dict['secret']
-        self.token = None
+    # ensure no batch has more than 250 entries
+    assert d.groupby('batch_id').apply(lambda x: len(x) <= 250).all(), \
+    'STOP! Some batches are too large.'
 
-    def resolve_host(self, host):
-        if host == 'sandbox':
-            return 'https://api.sandbox.paypal.com'
-        else:
-            return 'https://api.paypal.com'
+    # check if email is well-formed
+    assert d.receiver_email.apply(lambda x: re.match(EMAIL_CHECK, x)).all(), \
+    'STOP! Not all email addresses are well-formed.'
 
-    def authenticate(self):
-        client = BackendApplicationClient(client_id=self.key)
-        oauth = OAuth2Session(client=client)
-        token = oauth.fetch_token(token_url='{}/{}'.format(self.HOST, self.AUTH_EP),
-                                  client_id=self.key, client_secret=self.secret)
-        self.token = token['access_token']
+    # check currency values are valid
+    assert d.value.apply(lambda x: isinstance(x, float)).all(), \
+    'STOP! Currencies not numeric'
 
-    def get_sale(self, sale):
-        URL = '{}/{}/sale/{}'.format(self.HOST, self.PAYMENTS_EP, sale)
-        r = requests.get(
-            URL,
-            # headers={
-            #     'Content-Type': 'application/json',
-            #     'Authorization': 'Bearer {}'.format(self.token),
-            # },
-            # params = {
-            #     'sale_id': sale,
-            # }
-        )
-        return r
+    # check currencies are valid
+    assert d.currency.all() in ['USD', 'PHP'], \
+    'STOP! Not all currency choices are valid.'
 
-    def make_payment(self, intent, payer, transactions, redirect_urls=None):
-        URL = '{}/{}/payment'.format(self.HOST, self.PAYMENTS_EP)
-        r = requests.post(
-            URL,
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": "Bearer {}".format(self.token),
+    # check all item id's are unique
+    assert len(d.item_id) == len(set(d.item_id)), \
+    'STOP! Not all transactions IDs are unique.'
+
+
+def build_payout(df):
+    return [
+        {
+            'recipient_type': 'EMAIL',
+            'amount': {
+                'value': '{0:.2f}'.format(value),
+                'currency': currency,
             },
-            params = {
-                "intent": intent,
-                "redirect_urls": literal_eval(redirect_urls),
-                "payer": literal_eval(payer),
-                "transactions": literal_eval(transactions),
-            }
+            'receiver': email,
+            'note': 'Thank you for playing, we hope you\'ll participate in '
+                    'additional experiments.',
+            'sender_item_id': item_id,
+        } for value, currency, email, item_id in zip(df.value,
+                                                     df.currency,
+                                                     df.receiver_email,
+                                                     df.item_id)
+    ]
+
+
+def run(args_dict):
+    # load payout worksheet
+    d = pd.read_csv(args_dict['payments'], sep=None, engine='python')
+
+    # run data checks
+    data_checks(d)
+
+    # group data by batches
+    d = d.groupby('batch_id')
+
+    # authenticate client
+    pp.configure(
+        {
+            'mode': args_dict['environment'],
+            'client_id': args_dict['auth'][0],
+            'client_secret': args_dict['auth'][1],
+        }
+    )
+
+    # make payouts
+    for batch, details in d:
+        payout = pp.Payout(
+            {
+                'sender_batch_header': {
+                    'sender_batch_id': batch,
+                    'email_subject': 'Thank you for participating in PROGRAM NAME; '
+                                     'here is your incentive payment.'
+                },
+                'items': build_payout(details)
+            },
         )
-        return r
+
+        # send payouts
+        if payout.create():
+            print('Payout {} successfully processed.'
+                  .format(payout.batch_header.payout_batch_id)
+            )
+        else:
+            print(payout.error)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Make PayPal payments.')
+    parser.add_argument('-a', '--auth', required=True, nargs=2, help='API '
+                        'authorization key and secret (in that order).')
     parser.add_argument('-e', '--environment', required=False, default='sandbox',
                         choices=['sandbox', 'production'], help= 'Indicates the '
                         'environment for use.')
-    parser.add_argument('-k', '--key', required=True, help='API authorization key.')
-    parser.add_argument('-s', '--secret', required=True, help='API authorization '
-                        'secret.')
+    parser.add_argument('-p', '--payments', required=True, help='Path/file to '
+                        'CSV with payment information.')
+    args_dict = vars(parser.parse_args())
+
+    run(args_dict)
