@@ -1,8 +1,16 @@
 #!/usr/bin/python
 import argparse
+import logging
 import pandas as pd
 import paypalrestsdk as pp
 import re
+
+
+logger = logging.getLogger(__name__)
+log_format = '%(asctime)s | %(name)s | %(filename)s (%(lineno)d) | %(levelname)s | %(message)s'
+logging.basicConfig(format=log_format, level=logging.DEBUG)
+logging.getLogger('paypalrestsdk').setLevel(logging.WARN)
+logging.getLogger('urllib3').setLevel(logging.INFO)
 
 
 def batch_size_test(d):
@@ -98,11 +106,11 @@ def run(args_dict):
 
         # send payouts
         if payout.create():
-            print('Payout {} successfully processed.'
-                  .format(payout.batch_header.payout_batch_id)
+            logger.info('Payout {} successfully processed.'
+                        .format(payout.batch_header.payout_batch_id)
             )
         else:
-            print(payout.error)
+            logger.info(payout.error)
 
 
 if __name__ == '__main__':
