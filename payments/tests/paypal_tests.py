@@ -21,6 +21,25 @@ def test_batch_size_test_fail(test):
     assert batch_size_test(test)
 
 
+@pytest.mark.parametrize('test, expected', [
+    (pd.DataFrame({'first_name': ['mark', 'LIZ']}), ('Mark', 'Liz')),
+    (pd.DataFrame({'first_name': ['Mark', 'liz']}), ('Mark', 'Liz')),
+    (pd.DataFrame({'first_name': ['MARK', 'Liz']}), ('Mark', 'Liz')),
+])
+def test_check_name_test_pass(test, expected):
+    result = check_name_test(test)
+    assert result[0] == expected[0]
+    assert result[1] == expected[1]
+
+
+@pytest.mark.parametrize('test', [
+    (pd.DataFrame({'first_name': ['Mark', np.nan, 'Liz']})),
+])
+@pytest.mark.xfail(raises=AssertionError)
+def test_check_name_test_test_fail(test):
+    assert check_name_test(test)
+
+
 @pytest.mark.parametrize('test', [
     (pd.DataFrame({'currency': ['USD', 'PHP', 'USD']})),
 ])
@@ -93,27 +112,31 @@ def test_values_numeric_test_fail(test):
 
 @pytest.mark.parametrize('test, expected', [
     (pd.DataFrame({
+        'first_name': ['Fe'],
         'value': [1],
         'currency': ['USD'],
         'receiver_email': ['this@test.com'],
         'item_id': ['A'],
-    }), ('1.00', 'USD', 'this@test.com', 'A')),
+    }), ('Fe', '1.00', 'USD', 'this@test.com', 'A')),
     (pd.DataFrame({
+        'first_name': ['Fi'],
         'value': [199.34],
         'currency': ['PHP'],
         'receiver_email': ['that@test.org'],
         'item_id': ['B'],
-    }), ('199.34', 'PHP', 'that@test.org', 'B')),
+    }), ('Fi', '199.34', 'PHP', 'that@test.org', 'B')),
     (pd.DataFrame({
+        'first_name': ['Fo'],
         'value': [.5],
         'currency': ['USD'],
         'receiver_email': ['t@t.edu'],
         'item_id': ['C'],
-    }), ('0.50', 'USD', 't@t.edu', 'C')),
+    }), ('Fo', '0.50', 'USD', 't@t.edu', 'C')),
 ])
 def test_build_payout(test, expected):
     result = build_payout(test)
-    assert result[0]['amount']['value'] == expected[0]
-    assert result[0]['amount']['currency'] == expected[1]
-    assert result[0]['receiver'] == expected[2]
-    assert result[0]['sender_item_id'] == expected[3]
+    assert expected[0] in result[0]['note']
+    assert result[0]['amount']['value'] == expected[1]
+    assert result[0]['amount']['currency'] == expected[2]
+    assert result[0]['receiver'] == expected[3]
+    assert result[0]['sender_item_id'] == expected[4]

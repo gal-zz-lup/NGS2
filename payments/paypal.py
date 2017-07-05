@@ -1,14 +1,17 @@
 #!/usr/bin/python
 import argparse
+import datetime
 import logging
 import pandas as pd
 import paypalrestsdk as pp
 import re
+import sys
 
 
 logger = logging.getLogger(__name__)
 log_format = '%(asctime)s | %(name)s | %(filename)s (%(lineno)d) | %(levelname)s | %(message)s'
-logging.basicConfig(format=log_format, level=logging.DEBUG)
+logging.basicConfig(filename='payments/paypal_processing.log', format=log_format,
+                    level=logging.DEBUG)
 logging.getLogger('paypalrestsdk').setLevel(logging.WARN)
 logging.getLogger('urllib3').setLevel(logging.INFO)
 
@@ -19,6 +22,13 @@ def batch_size_test(d):
     'STOP! Some batches are too large.'
 
 
+def check_name_test(d):
+    # check that names are not missing and place in proper case
+    assert d.first_name.notnull().all(), \
+    'STOP! Some names are missing.'
+    return d.first_name.apply(lambda x: x.title())
+
+
 def currency_type_test(d):
     # check currencies are valid
     assert d.currency.all() in ['USD', 'PHP'], \
@@ -26,9 +36,8 @@ def currency_type_test(d):
 
 
 def email_formation_test(d):
-    EMAIL_CHECK = '^\w*@\w*.(com|org|edu)$'
-
     # check if email is well-formed
+    EMAIL_CHECK = '^\w*@\w*.(com|org|edu)$'
     assert d.receiver_email.apply(lambda x: re.match(EMAIL_CHECK, x)).all(), \
     'STOP! Not all email addresses are well-formed.'
 
@@ -47,6 +56,7 @@ def values_numeric_test(d):
 
 def data_checks(d):
     batch_size_test(d)
+    d.first_name = check_name_test(d)
     email_formation_test(d)
     values_numeric_test(d)
     currency_type_test(d)
@@ -54,6 +64,11 @@ def data_checks(d):
 
 
 def build_payout(df):
+    MESSAGES = [('Greetings {}. Thank you for participating in the World Lab. If '
+               'you have any problems retrieving your incentive payment, please '
+               'contact GallupWorldLab@gallup.com. We look forward to offering '
+               'you additional World Lab opportunities in '
+               'the future.'.format(name)) for name in df.first_name]
     return [
         {
             'recipient_type': 'EMAIL',
@@ -62,25 +77,42 @@ def build_payout(df):
                 'currency': currency,
             },
             'receiver': email,
-            'note': 'Thank you for playing, we hope you\'ll participate in '
-                    'additional experiments.',
+            'note': message,
             'sender_item_id': item_id,
-        } for value, currency, email, item_id in zip(df.value,
-                                                     df.currency,
-                                                     df.receiver_email,
-                                                     df.item_id)
+        } for message, value, currency, email, item_id in zip(MESSAGES,
+                                                              df.value,
+                                                              df.currency,
+                                                              df.receiver_email,
+                                                              df.item_id)
     ]
 
 
 def run(args_dict):
+    # start logger
+    logger.info('Starting transactions for {} at {}'.format(
+        args_dict['payments'],
+        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    )
+
     # load payout worksheet
     d = pd.read_csv(args_dict['payments'], sep=None, engine='python')
 
+    # subset to new transactions
+    subd = d[d.processed_code.isnull()]
+    if subd.shape[0]==0:
+        logger.info('STOP! No new transactions to process. Quitting and closing '
+                    'log at {}.\n'.format(datetime
+                                        .datetime
+                                        .now()
+                                        .strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        sys.exit()
+
     # run data checks
-    data_checks(d)
+    data_checks(subd)
 
     # group data by batches
-    d = d.groupby('batch_id')
+    subd = subd.groupby('batch_id')
 
     # authenticate client
     pp.configure(
@@ -92,13 +124,12 @@ def run(args_dict):
     )
 
     # make payouts
-    for batch, details in d:
+    for batch, details in subd:
         payout = pp.Payout(
             {
                 'sender_batch_header': {
                     'sender_batch_id': batch,
-                    'email_subject': 'Thank you for participating in PROGRAM NAME; '
-                                     'here is your incentive payment'
+                    'email_subject': 'World Lab Incentive Payment'
                 },
                 'items': build_payout(details)
             },
@@ -109,8 +140,17 @@ def run(args_dict):
             logger.info('Payout {} successfully processed.'
                         .format(payout.batch_header.payout_batch_id)
             )
+            d.loc[(d.batch_id==batch) & (d.processed_code.isnull()),
+                  'processed_code'] = payout.batch_header.payout_batch_id
         else:
             logger.info(payout.error)
+
+    # output data
+    d.to_csv(args_dict['payments'], index=False)
+    logger.info('Closing log for {} at {}\n'.format(
+        args_dict['payments'],
+        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    )
 
 
 if __name__ == '__main__':
