@@ -7,6 +7,37 @@ from NGS2.payments.paypal import *
 
 
 @pytest.mark.parametrize('test', [
+    (pd.DataFrame({
+        'batch_id': ['A'],
+        'first_name': ['holder'],
+        'receiver_email': ['test@test.com'],
+        'value': [.11],
+        'currency': ['USD'],
+        'item_id': ['A1'],
+        'processed_code': ['s0meth|ng'],
+    })),
+])
+def test_data_struture_test_pass(test):
+    assert data_structure_test(test) == None
+
+
+@pytest.mark.parametrize('test', [
+    (pd.DataFrame({
+        'batch_id': ['A'],
+        'first_name': ['holder'],
+        'receiver_email': ['test@test.com'],
+        'value': [.11],
+        'item_id': ['A1'],
+        'processed_code': ['s0meth|ng'],
+        'extra_col': [None],
+    })),
+])
+@pytest.mark.xfail(raises=AssertionError)
+def test_data_structure_test_fail(test):
+    assert data_structure_test(test)
+
+
+@pytest.mark.parametrize('test', [
     (pd.DataFrame({'batch_id': ['A', 'A', 'B']})),
 ])
 def test_batch_size_test_pass(test):
@@ -40,11 +71,15 @@ def test_check_name_test_test_fail(test):
     assert check_name_test(test)
 
 
-@pytest.mark.parametrize('test', [
-    (pd.DataFrame({'currency': ['USD', 'PHP', 'USD']})),
+@pytest.mark.parametrize('test, expected', [
+    (pd.DataFrame({'currency': ['USD', 'PHP']}), ('USD', 'PHP')),
+    (pd.DataFrame({'currency': ['Usd', 'pHP']}), ('USD', 'PHP')),
+    (pd.DataFrame({'currency': ['usd', 'php']}), ('USD', 'PHP')),
 ])
-def test_currency_type_test_pass(test):
-    assert currency_type_test(test) == None
+def test_currency_type_test_pass(test, expected):
+    result = currency_type_test(test)
+    assert result[0] == expected[0]
+    assert result[1] == expected[1]
 
 
 @pytest.mark.parametrize('test', [

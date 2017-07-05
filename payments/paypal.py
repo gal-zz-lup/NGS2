@@ -1,6 +1,5 @@
 #!/usr/bin/python
 import argparse
-import datetime
 import logging
 import pandas as pd
 import paypalrestsdk as pp
@@ -16,9 +15,24 @@ logging.getLogger('paypalrestsdk').setLevel(logging.WARN)
 logging.getLogger('urllib3').setLevel(logging.INFO)
 
 
+def data_structure_test(d):
+    # ensure all expected columns and no others are present
+    EXPECTED_COLUMNS = {
+        'batch_id',
+        'currency',
+        'first_name',
+        'item_id',
+        'processed_code',
+        'receiver_email',
+        'value'
+    }
+    assert set(d.columns) == EXPECTED_COLUMNS, \
+    'STOP! The input worksheet is not structured as expected.'
+
+
 def batch_size_test(d):
     # ensure no batch has more than 250 entries
-    assert d.groupby('batch_id').apply(lambda x: len(x) <= 250).all(), \
+    assert d.groupby('batch_id').apply(lambda x: len(x) <= 500).all(), \
     'STOP! Some batches are too large.'
 
 
@@ -31,8 +45,10 @@ def check_name_test(d):
 
 def currency_type_test(d):
     # check currencies are valid
+    d.currency = d.currency.apply(lambda x: x.upper())
     assert d.currency.all() in ['USD', 'PHP'], \
     'STOP! Not all currency choices are valid.'
+    return d.currency
 
 
 def email_formation_test(d):
@@ -50,23 +66,24 @@ def unique_transaction_ids_test(d):
 
 def values_numeric_test(d):
     # check currency values are valid
-    assert d.value.apply(lambda x: isinstance(x, float)).all(), \
+    assert d.value.apply(lambda x: isinstance(x, (int, float))).all(), \
     'STOP! Currencies not numeric'
 
 
 def data_checks(d):
+    data_structure_test(d)
     batch_size_test(d)
     d.first_name = check_name_test(d)
     email_formation_test(d)
     values_numeric_test(d)
-    currency_type_test(d)
+    d.currency = currency_type_test(d)
     unique_transaction_ids_test(d)
 
 
 def build_payout(df):
     MESSAGES = [('Greetings {}. Thank you for participating in the World Lab. If '
                'you have any problems retrieving your incentive payment, please '
-               'contact GallupWorldLab@gallup.com. We look forward to offering '
+               'contact World_Lab@gallup.com. We look forward to offering '
                'you additional World Lab opportunities in '
                'the future.'.format(name)) for name in df.first_name]
     return [
@@ -89,10 +106,7 @@ def build_payout(df):
 
 def run(args_dict):
     # start logger
-    logger.info('Starting transactions for {} at {}'.format(
-        args_dict['payments'],
-        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    )
+    logger.info('Starting transactions for {}.'.format(args_dict['payments']))
 
     # load payout worksheet
     d = pd.read_csv(args_dict['payments'], sep=None, engine='python')
@@ -100,12 +114,7 @@ def run(args_dict):
     # subset to new transactions
     subd = d[d.processed_code.isnull()]
     if subd.shape[0]==0:
-        logger.info('STOP! No new transactions to process. Quitting and closing '
-                    'log at {}.\n'.format(datetime
-                                        .datetime
-                                        .now()
-                                        .strftime('%Y-%m-%d %H:%M:%S'))
-        )
+        logger.info('STOP! No new transactions to process. Quitting and closing log.\n')
         sys.exit()
 
     # run data checks
@@ -137,8 +146,9 @@ def run(args_dict):
 
         # send payouts
         if payout.create():
-            logger.info('Payout {} successfully processed.'
-                        .format(payout.batch_header.payout_batch_id)
+            logger.info('Payout for `batch_id` {} successfully processed '
+                        '(processing code: {}).'
+                        .format(batch, payout.batch_header.payout_batch_id)
             )
             d.loc[(d.batch_id==batch) & (d.processed_code.isnull()),
                   'processed_code'] = payout.batch_header.payout_batch_id
@@ -147,10 +157,7 @@ def run(args_dict):
 
     # output data
     d.to_csv(args_dict['payments'], index=False)
-    logger.info('Closing log for {} at {}\n'.format(
-        args_dict['payments'],
-        datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    )
+    logger.info('Closing log for {}.\n'.format(args_dict['payments']))
 
 
 if __name__ == '__main__':
@@ -158,7 +165,7 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--auth', required=True, nargs=2, help='API '
                         'authorization key and secret (in that order).')
     parser.add_argument('-e', '--environment', required=False, default='sandbox',
-                        choices=['sandbox', 'production'], help= 'Indicates the '
+                        choices=['sandbox', 'live'], help= 'Indicates the '
                         'environment for use.')
     parser.add_argument('-p', '--payments', required=True, help='Path/file to '
                         'CSV with payment information.')
