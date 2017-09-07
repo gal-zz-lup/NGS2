@@ -15,7 +15,7 @@ merged.empanel.exp1 <- merge(x = cooperation.exp.1[,c('empanel_id','action')],
                                  y = empanelment, by.x = 'empanel_id', by.y = 'ExternalReference')
 cat("Number of rows in merged.empanelment.exp1", nrow(merged.empanel.exp1))
 
-# Merging the experiment1 data with empanelment
+# Merging the experiment2 data with empanelment
 names(cooperation.exp.2)[names(cooperation.exp.2) == 'decision0d1c'] <- "action"
 merged.empanel.exp2 <- merge(x = cooperation.exp.2[,c('empanel_id','action')], 
                              y = empanelment, by.x = 'empanel_id', by.y = 'ExternalReference')
@@ -91,7 +91,7 @@ merged.empanel.exp1 <- merged.empanel.exp1[sample(nrow(merged.empanel.exp1)),]
 set.seed(901)
 
 # creating sample size for training
-sample.size <- floor(0.75 * nrow(mtcars))
+sample.size <- floor(0.75 * nrow(merged.empanel.exp1))
 train.index <- sample(seq_len(nrow(merged.empanel.exp1)), size=sample.size)
 
 train.exp1 <- merged.empanel.exp1[train.index,]
